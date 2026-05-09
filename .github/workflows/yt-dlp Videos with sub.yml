@@ -1,4 +1,4 @@
-name: Download Videos with sub with yt-dlp
+name: yt-dlp Videos with sub
 
 on:
   workflow_dispatch:
