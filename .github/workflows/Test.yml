@@ -1,0 +1,85 @@
+name: yt-dlp Videos with sub and split
+
+on:
+  workflow_dispatch:
+    inputs:
+      URL:
+        description: 'URL'
+        required: true
+      PASSWORD:
+        description: 'Password for 7z archive (optional)'
+        required: false
+        default: ''
+
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          ref: downloads
+
+      - name: Install yt-dlp
+        run: |
+          curl -L -o ~/.local/bin/yt-dlp https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp
+          chmod a+rx ~/.local/bin/yt-dlp
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Install ffmpeg and 7z
+        run: sudo apt update && sudo apt install -y ffmpeg p7zip-full
+
+      - name: Configure Git
+        run: |
+          git config user.email "parsastdev@duck.com"
+          git config user.name "Parsast"
+
+      - name: Download Video
+        run: |
+          if [ -n "${{ secrets.COOKIES }}" ]; then
+            echo "${{ secrets.COOKIES }}" | base64 -d > cookies.txt
+            COOKIE_OPT="--cookies cookies.txt"
+          else
+            COOKIE_OPT=""
+          fi
+          yt-dlp --write-sub --sub-lang en --embed-subs --remux-video mkv \
+                 --embed-thumbnail --embed-metadata $COOKIE_OPT \
+                 --output "video_%(id)s.%(ext)s" "${{ github.event.inputs.URL }}"
+          rm -f cookies.txt
+
+      - name: Find downloaded file
+        id: findfile
+        run: |
+          FILE=$(ls -1 video_*.mkv 2>/dev/null | head -n1)
+          if [ -z "$FILE" ]; then
+            echo "❌ No MKV file found!"
+            exit 1
+          fi
+          echo "file=$FILE" >> $GITHUB_OUTPUT
+          echo "📥 Downloaded: $FILE"
+
+      - name: Split into 90MB 7z parts
+        run: |
+          FILE="${{ steps.findfile.outputs.file }}"
+          BASENAME="${FILE%.*}"
+          FOLDER_NAME="${BASENAME}_split"
+          mkdir -p "downloads/video/$FOLDER_NAME"
+
+          if [ -z "${{ github.event.inputs.PASSWORD }}" ]; then
+            7z a -mhe=on -mx=3 -v90m "downloads/video/$FOLDER_NAME/archive.7z" "$FILE"
+          else
+            7z a -p"${{ github.event.inputs.PASSWORD }}" -mhe=on -mx=3 -v90m "downloads/video/$FOLDER_NAME/archive.7z" "$FILE"
+          fi
+
+          rm -f "$FILE"
+          echo "✅ Split archive created in downloads/video/$FOLDER_NAME"
+
+      - name: Push to repo
+        run: |
+          git add downloads/
+          git commit -m "Add split video from ${{ github.event.inputs.URL }}" || echo "No changes to commit"
+          git push -u origin downloads
