@@ -27,14 +27,18 @@ jobs:
           ref: downloads
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: ⚙️ نصب ابزارها (yt-dlp, ffmpeg, 7z)
+      - name: ⚙️ نصب ابزارها (Deno, yt-dlp, ffmpeg, 7z)
         run: |
+          # به‌روزرسانی و نصب بسته‌های سیستمی
           sudo apt update
-          sudo apt install -y ffmpeg p7zip-full
-          mkdir -p ~/.local/bin
-          curl -L -o ~/.local/bin/yt-dlp https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp
-          chmod a+rx ~/.local/bin/yt-dlp
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          sudo apt install -y ffmpeg p7zip-full python3-pip
+
+          # نصب Deno (موتور جاوااسکریپت برای حل چالش یوتیوب)
+          curl -fsSL https://deno.land/install.sh | sh
+          echo "$HOME/.deno/bin" >> $GITHUB_PATH
+
+          # نصب yt-dlp از طریق pip (همراه با تمام کامپوننت‌های جانبی)
+          pip3 install --break-system-packages "yt-dlp[default]"
 
       - name: 🔧 تنظیمات گیت
         run: |
@@ -51,7 +55,9 @@ jobs:
             COOKIE_OPT=""
           fi
 
+          # دانلود با قابلیت حل چالش جاوااسکریپتی یوتیوب
           yt-dlp \
+            --remote-components ejs:github \
             --write-sub \
             --sub-lang en \
             --embed-subs \
