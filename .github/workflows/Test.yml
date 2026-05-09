@@ -1,68 +1,82 @@
-name: yt-dlp Videos with sub and split
+name: yt-dlp Videos with sub and split into 90MB parts
 
 on:
   workflow_dispatch:
     inputs:
       URL:
-        description: 'URL'
+        description: '🔗 لینک ویدیو (یوتیوب یا سایر سایت‌های پشتیبانی شده)'
         required: true
+        type: string
       PASSWORD:
-        description: 'Password for 7z archive (optional)'
+        description: '🔐 رمز فایل فشرده (اختیاری)'
         required: false
+        type: string
         default: ''
 
-jobs:
-  push:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
+permissions:
+  contents: write
 
+jobs:
+  download-and-split:
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: 🔄 دریافت کد مخزن (برنچ downloads)
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
           ref: downloads
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install yt-dlp
+      - name: ⚙️ نصب ابزارها (yt-dlp, ffmpeg, 7z)
         run: |
+          sudo apt update
+          sudo apt install -y ffmpeg p7zip-full
+          mkdir -p ~/.local/bin
           curl -L -o ~/.local/bin/yt-dlp https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp
           chmod a+rx ~/.local/bin/yt-dlp
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-      - name: Install ffmpeg and 7z
-        run: sudo apt update && sudo apt install -y ffmpeg p7zip-full
-
-      - name: Configure Git
+      - name: 🔧 تنظیمات گیت
         run: |
-          git config user.email "parsastdev@duck.com"
-          git config user.name "Parsast"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Download Video
+      - name: 📥 دانلود ویدیو با زیرنویس و متادیتا
         run: |
+          # اگر کوکی در secrets ذخیره شده (اختیاری)
           if [ -n "${{ secrets.COOKIES }}" ]; then
             echo "${{ secrets.COOKIES }}" | base64 -d > cookies.txt
             COOKIE_OPT="--cookies cookies.txt"
           else
             COOKIE_OPT=""
           fi
-          yt-dlp --write-sub --sub-lang en --embed-subs --remux-video mkv \
-                 --embed-thumbnail --embed-metadata $COOKIE_OPT \
-                 --output "video_%(id)s.%(ext)s" "${{ github.event.inputs.URL }}"
+
+          yt-dlp \
+            --write-sub \
+            --sub-lang en \
+            --embed-subs \
+            --remux-video mkv \
+            --embed-thumbnail \
+            --embed-metadata \
+            $COOKIE_OPT \
+            --output "video_%(id)s.%(ext)s" \
+            "${{ github.event.inputs.URL }}"
+
           rm -f cookies.txt
 
-      - name: Find downloaded file
+      - name: 🎯 پیدا کردن فایل دانلود شده
         id: findfile
         run: |
           FILE=$(ls -1 video_*.mkv 2>/dev/null | head -n1)
           if [ -z "$FILE" ]; then
-            echo "❌ No MKV file found!"
+            echo "❌ هیچ فایل MKV یافت نشد! دانلود احتمالاً ناموفق بوده."
             exit 1
           fi
           echo "file=$FILE" >> $GITHUB_OUTPUT
-          echo "📥 Downloaded: $FILE"
+          echo "📁 فایل دانلود شده: $FILE"
+          ls -lh "$FILE"
 
-      - name: Split into 90MB 7z parts
+      - name: ✂️ تقسیم فایل به قطعات 90 مگابایتی (7z)
         run: |
           FILE="${{ steps.findfile.outputs.file }}"
           BASENAME="${FILE%.*}"
@@ -75,11 +89,14 @@ jobs:
             7z a -p"${{ github.event.inputs.PASSWORD }}" -mhe=on -mx=3 -v90m "downloads/video/$FOLDER_NAME/archive.7z" "$FILE"
           fi
 
+          # حذف فایل اصلی
           rm -f "$FILE"
-          echo "✅ Split archive created in downloads/video/$FOLDER_NAME"
 
-      - name: Push to repo
+          echo "✅ آرشیو تقسیم شده در: downloads/video/$FOLDER_NAME"
+          ls -lh "downloads/video/$FOLDER_NAME/"
+
+      - name: 📤 ارسال به مخزن (برنچ downloads)
         run: |
           git add downloads/
-          git commit -m "Add split video from ${{ github.event.inputs.URL }}" || echo "No changes to commit"
+          git commit -m "Add split video from ${{ github.event.inputs.URL }}" || echo "📭 تغییری برای commit وجود ندارد"
           git push -u origin downloads
